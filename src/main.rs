@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::{stdin, stdout};
 use itertools::Itertools;
 use std::io::Write;
+use std::path::Path;
 
 #[derive(Serialize, Deserialize)]
 struct Progress {
@@ -59,17 +60,25 @@ fn merged_chunks_to_tasks(values: Vec<Vec<serde_json::Value>>) -> Vec<MergeTask>
     }).collect()
 }
 
-fn merge_task_next(merge_task: MergeTask) -> MergeTask {
+enum NextStep {
+    Continue,
+    Quit,
+}
+
+fn merge_task_next(merge_task: MergeTask) -> (MergeTask, NextStep) {
     if merge_task.left.len() <= 0 || merge_task.right.len() <= 0 {
-        return MergeTask{
-            merged: merge_task.merged.into_iter().chain(
-                merge_task.left.into_iter(),
-            ).chain(
-                merge_task.right.into_iter(),
-            ).collect(),
-            left: vec![],
-            right: vec![],
-        }
+        return (
+            MergeTask{
+                merged: merge_task.merged.into_iter().chain(
+                    merge_task.left.into_iter(),
+                ).chain(
+                    merge_task.right.into_iter(),
+                ).collect(),
+                left: vec![],
+                right: vec![],
+            },
+            NextStep::Continue,
+        )
     }
 
     {
@@ -79,7 +88,7 @@ fn merge_task_next(merge_task: MergeTask) -> MergeTask {
         println!("l: {}", left);
         println!("r: {}", right);
     }
-    print!("[l, r]: ");
+    print!("[l, r, q]: ");
     stdout().flush().unwrap();
     let mut response = String::new();
     stdin().read_line(&mut response).unwrap();
@@ -90,37 +99,50 @@ fn merge_task_next(merge_task: MergeTask) -> MergeTask {
         ).collect();
         let left = merge_task.left.into_iter().skip(1).collect();
         let right = merge_task.right;
-        MergeTask{
-            merged: merged,
-            left: left,
-            right: right,
-        }
+        (
+            MergeTask{
+                merged: merged,
+                left: left,
+                right: right,
+            },
+            NextStep::Continue,
+        )
     } else if response == "r\n" {
         let merged = merge_task.merged.into_iter().chain(
             vec![merge_task.right[0].clone()].into_iter(),
         ).collect();
         let right = merge_task.right.into_iter().skip(1).collect();
         let left = merge_task.left;
-        MergeTask{
-            merged: merged,
-            left: left,
-            right: right,
-        }
+        (
+            MergeTask{
+                merged: merged,
+                left: left,
+                right: right,
+            },
+            NextStep::Continue,
+        )
+    } else if response == "q\n" {
+        (
+            merge_task,
+            NextStep::Quit,
+        )
     } else {
         panic!("bad response");
     }
-
 }
 
-fn get_next_merge_state(merge_state: MergeState) -> MergeState {
+fn get_next_merge_state(merge_state: MergeState) -> (MergeState, NextStep) {
     if merge_state.merge_from.len() == 0 {
-        return MergeState{
-            merge_from: merged_chunks_to_tasks(merge_state.merge_to),
-            merge_to: vec![],
-        }
+        return (
+            MergeState{
+                merge_from: merged_chunks_to_tasks(merge_state.merge_to),
+                merge_to: vec![],
+            },
+            NextStep::Continue,
+        )
     }
-    let new_merge_task = merge_task_next(merge_state.merge_from[0].clone());
-    if new_merge_task.left.len() == 0 && new_merge_task.right.len() == 0 {
+    let (new_merge_task, next_step) = merge_task_next(merge_state.merge_from[0].clone());
+    let new_merge_state = if new_merge_task.left.len() == 0 && new_merge_task.right.len() == 0 {
         MergeState{
             merge_from: merge_state.merge_from.into_iter().skip(1).collect(),
             merge_to: merge_state.merge_to.into_iter().chain(
@@ -136,44 +158,64 @@ fn get_next_merge_state(merge_state: MergeState) -> MergeState {
             ).collect(),
             merge_to: merge_state.merge_to,
         }
-    }
+    };
+
+    (new_merge_state, next_step)
 }
 
 fn main() {
-    let argv: Vec<String> = args().collect();
+    let mut argv = args();
+    // skip program name
+    argv.next();
+    let source_filename = argv.next().unwrap();
+    let destination_filename = argv.next().unwrap();
+    let state_filename = argv.next().unwrap_or(format!(".{}.merging", source_filename));
 
     let mut merge_state = {
-        let filename = &argv[1];
-        let state_filename = format!(".{}.merging", filename);
-
-        let items: Vec<serde_json::Value> = {
-            let fd = File::open(&filename).unwrap();
+        if Path::new(&state_filename).is_file() {
+            println!("resuming merging from {}", state_filename);
+            let fd = File::open(&state_filename).unwrap();
             serde_json::from_reader(fd).unwrap()
-        };
+        } else {
+            let items: Vec<serde_json::Value> = {
+                let fd = File::open(&source_filename).unwrap();
+                serde_json::from_reader(fd).unwrap()
+            };
 
-        let merge_tasks = values_to_tasks(items);
+            let merge_tasks = values_to_tasks(items);
 
-        let merge_state = MergeState{
-            merge_from: merge_tasks,
-            merge_to: vec![],
-        };
+            let merge_state = MergeState{
+                merge_from: merge_tasks,
+                merge_to: vec![],
+            };
 
-        {
-            let fd = File::create(&state_filename).unwrap();
-            serde_json::to_writer(fd, &merge_state).unwrap();
+            {
+                println!("saving progress at {}", state_filename);
+                let fd = File::create(&state_filename).unwrap();
+                serde_json::to_writer(fd, &merge_state).unwrap();
+            }
+
+            merge_state
         }
-
-        merge_state
     };
 
     while merge_state.merge_from.len() != 0 || merge_state.merge_to.len() != 1 {
-        merge_state = get_next_merge_state(merge_state);
+        let return_tuple = get_next_merge_state(merge_state);
+        merge_state = return_tuple.0;
+        let next_step = return_tuple.1;
+        match next_step {
+            NextStep::Quit => {
+                let fd = File::create(&state_filename).unwrap();
+                serde_json::to_writer(fd, &merge_state).unwrap();
+                return;
+            },
+            _ => (),
+        }
         println!("{:?}", &merge_state);
     }
 
     {
-        let filename = &argv[2];
-        let fd = File::create(&filename).unwrap();
+        let fd = File::create(&destination_filename).unwrap();
         serde_json::to_writer(fd, &merge_state.merge_to[0]).unwrap();
     }
 }
