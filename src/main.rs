@@ -169,11 +169,15 @@ fn main() {
     argv.next();
     let source_filename = argv.next().unwrap();
     let destination_filename = argv.next().unwrap();
-    let state_filename = argv.next().unwrap_or(format!(".{}.merging", source_filename));
+    let state_filename = argv.next().map(|e| Path::new(&e).to_path_buf()).unwrap_or(
+        Path::new(&source_filename).parent().unwrap_or(Path::new("/")).join(
+            format!(".{}.merging", Path::new(&source_filename).file_name().map(|e| e.to_str().unwrap()).unwrap_or("/")),
+        ),
+    );
 
     let mut merge_state = {
         if Path::new(&state_filename).is_file() {
-            println!("resuming merging from {}", state_filename);
+            println!("resuming merging from {}", state_filename.to_str().unwrap());
             let fd = File::open(&state_filename).unwrap();
             serde_json::from_reader(fd).unwrap()
         } else {
@@ -190,7 +194,7 @@ fn main() {
             };
 
             {
-                println!("saving progress at {}", state_filename);
+                println!("saving progress at {}", state_filename.to_str().unwrap());
                 let fd = File::create(&state_filename).unwrap();
                 serde_json::to_writer(fd, &merge_state).unwrap();
             }
