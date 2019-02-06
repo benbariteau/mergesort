@@ -85,8 +85,8 @@ fn merge_task_next(merge_task: MergeTask) -> (MergeTask, NextStep) {
         let left = &merge_task.left[0];
         let right = &merge_task.right[0];
 
-        println!("l: {}", left);
-        println!("r: {}", right);
+        println!("l: {}", serde_json::to_string_pretty(&left).unwrap());
+        println!("r: {}", serde_json::to_string_pretty(&right).unwrap());
     }
     print!("[l, r, q]: ");
     stdout().flush().unwrap();
