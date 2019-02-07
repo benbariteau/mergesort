@@ -8,6 +8,7 @@ use std::io::{stdin, stdout};
 use itertools::Itertools;
 use std::io::Write;
 use std::path::Path;
+use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize)]
 struct Progress {
@@ -163,6 +164,11 @@ fn get_next_merge_state(merge_state: MergeState) -> (MergeState, NextStep) {
     (new_merge_state, next_step)
 }
 
+fn write_state(state_filename: &PathBuf, merge_state: &MergeState) {
+    let fd = File::create(&state_filename).unwrap();
+    serde_json::to_writer(fd, &merge_state).unwrap();
+}
+
 fn main() {
     let mut argv = args();
     // skip program name
@@ -195,8 +201,7 @@ fn main() {
 
             {
                 println!("saving progress at {}", state_filename.to_str().unwrap());
-                let fd = File::create(&state_filename).unwrap();
-                serde_json::to_writer(fd, &merge_state).unwrap();
+                write_state(&state_filename, &merge_state);
             }
 
             merge_state
