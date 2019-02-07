@@ -219,7 +219,6 @@ fn main() {
             },
             _ => (),
         }
-        println!("{:?}", &merge_state);
     }
 
     {
