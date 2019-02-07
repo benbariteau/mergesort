@@ -211,11 +211,10 @@ fn main() {
     while merge_state.merge_from.len() != 0 || merge_state.merge_to.len() != 1 {
         let return_tuple = get_next_merge_state(merge_state);
         merge_state = return_tuple.0;
+        write_state(&state_filename, &merge_state);
         let next_step = return_tuple.1;
         match next_step {
             NextStep::Quit => {
-                let fd = File::create(&state_filename).unwrap();
-                serde_json::to_writer(fd, &merge_state).unwrap();
                 return;
             },
             _ => (),
