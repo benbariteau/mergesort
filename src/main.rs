@@ -132,32 +132,24 @@ fn merge_task_next(merge_task: MergeTask) -> (MergeTask, NextStep) {
     }
 }
 
-struct MergeLengths {
-    merge_from: Vec<(u64, u64)>,
-    merge_to: Vec<u64>,
-}
-
-fn calculate_comparisons(merge_lengths: MergeLengths) -> u64 {
-    if merge_lengths.merge_from.len() == 1 && merge_lengths.merge_from[0].1 == 0 && merge_lengths.merge_to.len() == 0 {
+fn calculate_comparisons(merge_lengths: Vec<(u64, u64)>) -> u64 {
+    if merge_lengths.len() == 1 && merge_lengths[0].1 == 0 {
         return 0;
     }
 
-    let comparisons_at_level: u64 = merge_lengths.merge_from.iter().cloned()
+    let comparisons_at_level: u64 = merge_lengths.iter().cloned()
         .map(|(left, right)| if left == 0 || right == 0 { 0 } else { left + right - 1 }).sum();
-    let next_merge_lengths = MergeLengths{
-        merge_from: merge_lengths.merge_to.into_iter()
-            .chain(merge_lengths.merge_from.iter().map(|(left, right)| left + right))
-            .batching(|it| {
-                match it.next() {
-                    None => None,
-                    Some(left) => match it.next() {
-                        None => Some((left, 0)),
-                        Some(right) => Some((left, right)),
-                    }
+    let next_merge_lengths = merge_lengths.iter()
+        .map(|(left, right)| left + right)
+        .batching(|it| {
+            match it.next() {
+                None => None,
+                Some(left) => match it.next() {
+                    None => Some((left, 0)),
+                    Some(right) => Some((left, right)),
                 }
-            }).collect(),
-        merge_to: vec![],
-    };
+            }
+        }).collect();
 
     comparisons_at_level + calculate_comparisons(next_merge_lengths)
 }
@@ -168,7 +160,7 @@ mod test {
 
     #[test]
     fn test_calculate_comparisons() {
-        assert_eq!(calculate_comparisons(MergeLengths{merge_from: vec![(2, 2), (2, 0)], merge_to: vec![4]}), 19);
+        assert_eq!(calculate_comparisons(vec![(2, 2), (2, 2), (2, 0)]), 22);
     }
 
     #[test]
@@ -181,40 +173,34 @@ fn calculate_comparisons_left(merge_state: &MergeState) -> u64 {
     let comparisons_at_level: u64 = merge_state.merge_from.iter()
         .map(|merge_task| (merge_task.left.len() + merge_task.right.len() - 1) as u64)
         .sum();
-    let merge_lengths = MergeLengths{
-        merge_from: merge_state.merge_to.iter().map(|chunk| chunk.len() as u64)
-            .chain(merge_state.merge_from.iter()
-                .map(|merge_task| merge_task.left.len() + merge_task.right.len() + merge_task.merged.len())
-                .map(|length| length as u64)
-            ).batching(|it| {
-                match it.next() {
-                    None => None,
-                    Some(left) => match it.next() {
-                        None => Some((left, 0)),
-                        Some(right) => Some((left, right)),
-                    }
+    let merge_lengths = merge_state.merge_to.iter().map(|chunk| chunk.len() as u64)
+        .chain(merge_state.merge_from.iter()
+               .map(|merge_task| merge_task.left.len() + merge_task.right.len() + merge_task.merged.len())
+               .map(|length| length as u64)
+        ).batching(|it| {
+            match it.next() {
+                None => None,
+                Some(left) => match it.next() {
+                    None => Some((left, 0)),
+                    Some(right) => Some((left, right)),
                 }
-            }).collect(),
-        merge_to: vec![],
-    };
+            }
+        }).collect();
 
     comparisons_at_level + calculate_comparisons(merge_lengths)
 }
 
 fn comparisons_for_length(length: usize) -> u64 {
     calculate_comparisons(
-        MergeLengths{
-            merge_from: vec![1].iter().cycle().take(length).cloned().batching(|it| {
-                match it.next() {
-                    None => None,
-                    Some(left) => match it.next() {
-                        None => Some((left, 0)),
-                        Some(right) => Some((left, right)),
-                    },
-                }
-            }).collect(),
-            merge_to: vec![],
-        },
+        vec![1].iter().cycle().take(length).cloned().batching(|it| {
+            match it.next() {
+                None => None,
+                Some(left) => match it.next() {
+                    None => Some((left, 0)),
+                    Some(right) => Some((left, right)),
+                },
+            }
+        }).collect(),
     )
 }
 
