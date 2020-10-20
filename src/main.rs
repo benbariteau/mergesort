@@ -132,6 +132,92 @@ fn merge_task_next(merge_task: MergeTask) -> (MergeTask, NextStep) {
     }
 }
 
+struct MergeLengths {
+    merge_from: Vec<(u64, u64)>,
+    merge_to: Vec<u64>,
+}
+
+fn calculate_comparisons(merge_lengths: MergeLengths) -> u64 {
+    if merge_lengths.merge_from.len() == 1 && merge_lengths.merge_from[0].1 == 0 && merge_lengths.merge_to.len() == 0 {
+        return 0;
+    }
+
+    let comparisons_at_level: u64 = merge_lengths.merge_from.iter().cloned()
+        .map(|(left, right)| if left == 0 || right == 0 { 0 } else { left + right - 1 }).sum();
+    let next_merge_lengths = MergeLengths{
+        merge_from: merge_lengths.merge_to.into_iter()
+            .chain(merge_lengths.merge_from.iter().map(|(left, right)| left + right))
+            .batching(|it| {
+                match it.next() {
+                    None => None,
+                    Some(left) => match it.next() {
+                        None => Some((left, 0)),
+                        Some(right) => Some((left, right)),
+                    }
+                }
+            }).collect(),
+        merge_to: vec![],
+    };
+
+    comparisons_at_level + calculate_comparisons(next_merge_lengths)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_calculate_comparisons() {
+        assert_eq!(calculate_comparisons(MergeLengths{merge_from: vec![(2, 2), (2, 0)], merge_to: vec![4]}), 19);
+    }
+
+    #[test]
+    fn test_comparisons_for_length() {
+        assert_eq!(comparisons_for_length(5), 9);
+    }
+}
+
+fn calculate_comparisons_left(merge_state: &MergeState) -> u64 {
+    let comparisons_at_level: u64 = merge_state.merge_from.iter()
+        .map(|merge_task| (merge_task.left.len() + merge_task.right.len() - 1) as u64)
+        .sum();
+    let merge_lengths = MergeLengths{
+        merge_from: merge_state.merge_to.iter().map(|chunk| chunk.len() as u64)
+            .chain(merge_state.merge_from.iter()
+                .map(|merge_task| merge_task.left.len() + merge_task.right.len() + merge_task.merged.len())
+                .map(|length| length as u64)
+            ).batching(|it| {
+                match it.next() {
+                    None => None,
+                    Some(left) => match it.next() {
+                        None => Some((left, 0)),
+                        Some(right) => Some((left, right)),
+                    }
+                }
+            }).collect(),
+        merge_to: vec![],
+    };
+
+    comparisons_at_level + calculate_comparisons(merge_lengths)
+}
+
+fn comparisons_for_length(length: usize) -> u64 {
+    calculate_comparisons(
+        MergeLengths{
+            merge_from: vec![1].iter().cycle().take(length).cloned().batching(|it| {
+                match it.next() {
+                    None => None,
+                    Some(left) => match it.next() {
+                        None => Some((left, 0)),
+                        Some(right) => Some((left, right)),
+                    },
+                }
+            }).collect(),
+            merge_to: vec![],
+        },
+    )
+}
+
 fn get_next_merge_state(merge_state: MergeState) -> (MergeState, NextStep) {
     if merge_state.merge_from.len() == 0 {
         return (
@@ -208,7 +294,14 @@ fn main() {
         }
     };
 
+    let total_comparisons = comparisons_for_length(
+        merge_state.merge_from.iter().flat_map(|merge_task| vec![merge_task.left.len(), merge_task.right.len(), merge_task.merged.len()].into_iter())
+            .chain(merge_state.merge_to.iter().map(|chunk| chunk.len())).sum()
+    );
+
     while merge_state.merge_from.len() != 0 || merge_state.merge_to.len() != 1 {
+        let comparisons_done = total_comparisons - calculate_comparisons_left(&merge_state);
+        println!("{}/{} [{:.2}%]", comparisons_done, total_comparisons, (comparisons_done as f64) / (total_comparisons as f64) * 100.0);
         let return_tuple = get_next_merge_state(merge_state);
         merge_state = return_tuple.0;
         write_state(&state_filename, &merge_state);
