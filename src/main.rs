@@ -91,7 +91,7 @@ fn merge_task_next(merge_task: MergeTask) -> (MergeTask, NextStep) {
         println!("l: {}", serde_json::to_string_pretty(&left).unwrap());
         println!("r: {}", serde_json::to_string_pretty(&right).unwrap());
     }
-    print!("[l, r, q, s]: ");
+    print!("[l, r, q, s, ?]: ");
     stdout().flush().unwrap();
     let mut response = String::new();
     stdin().read_line(&mut response).unwrap();
@@ -135,7 +135,15 @@ fn merge_task_next(merge_task: MergeTask) -> (MergeTask, NextStep) {
             NextStep::Skip,
         )
     } else {
-        panic!("bad response");
+        println!("l - choose the \"left\" item");
+        println!("r - choose the \"right\" item");
+        println!("s - skip chunk for now");
+        println!("q - quit (saves state in hidden file");
+        println!("? - see this help");
+        (
+            merge_task,
+            NextStep::Continue,
+        )
     }
 }
 
