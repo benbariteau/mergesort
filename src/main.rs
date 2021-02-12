@@ -61,8 +61,10 @@ fn merged_chunks_to_tasks(values: Vec<Vec<serde_json::Value>>) -> Vec<MergeTask>
     }).collect()
 }
 
+#[derive(PartialEq)]
 enum NextStep {
     Continue,
+    Skip,
     Quit,
 }
 
@@ -89,7 +91,7 @@ fn merge_task_next(merge_task: MergeTask) -> (MergeTask, NextStep) {
         println!("l: {}", serde_json::to_string_pretty(&left).unwrap());
         println!("r: {}", serde_json::to_string_pretty(&right).unwrap());
     }
-    print!("[l, r, q]: ");
+    print!("[l, r, q, s]: ");
     stdout().flush().unwrap();
     let mut response = String::new();
     stdin().read_line(&mut response).unwrap();
@@ -126,6 +128,11 @@ fn merge_task_next(merge_task: MergeTask) -> (MergeTask, NextStep) {
         (
             merge_task,
             NextStep::Quit,
+        )
+    } else if response == "s\n" {
+        (
+            merge_task,
+            NextStep::Skip,
         )
     } else {
         panic!("bad response");
@@ -215,7 +222,14 @@ fn get_next_merge_state(merge_state: MergeState) -> (MergeState, NextStep) {
         )
     }
     let (new_merge_task, next_step) = merge_task_next(merge_state.merge_from[0].clone());
-    let new_merge_state = if new_merge_task.left.len() == 0 && new_merge_task.right.len() == 0 {
+    let new_merge_state = if next_step == NextStep::Skip {
+        MergeState{
+            merge_from: merge_state.merge_from.into_iter().skip(1).chain(
+                            vec![new_merge_task].into_iter(),
+                            ).collect(),
+            merge_to: merge_state.merge_to,
+        }
+    } else if new_merge_task.left.len() == 0 && new_merge_task.right.len() == 0 {
         MergeState{
             merge_from: merge_state.merge_from.into_iter().skip(1).collect(),
             merge_to: merge_state.merge_to.into_iter().chain(
